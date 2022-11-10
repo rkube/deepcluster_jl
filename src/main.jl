@@ -1,13 +1,16 @@
 using Statistics
 using LinearAlgebra
-using Clustering
+#using Clustering
 using Flux
 using Flux.Data: DataLoader
 using MLDatasets
 using MLDataPattern
-using Clustering
+using Clustering: mutualinfo, ClusteringResult
+using ParallelKMeans
 using CairoMakie
 using CUDA
+
+using deepcluster_jl
 
 """
 Basic implementation of 
@@ -26,23 +29,19 @@ struct GroundTruthResult <: ClusteringResult
     assignments::Vector{Int}   # assignments (n)
 end
 truth = GroundTruthResult(all_y .+ 1);
-# Count cluster labels assignments
-# class_counts_truth = [(i, count(==(i), truth.assignments)) for i ∈ 1:10]
-# P_truth = [count(==(i), truth.assignments) for i ∈ 1:10] ./ n_samples
 
-# Probability that assignment of ground-truth is in class 1:10. Varies along rows. Fixed along columns
-# P_i = reshape(repeat([sum(truth.assignments .== i) for i ∈ 1:10] ./ n_samples, outer=10), 10, 10);
-# # # Probability that assignment of K-means is in class 1:10. Varies along column. Fixed along rows
-# P_j = reshape(repeat([sum(truth.assignments .== i) for i ∈ 1:10] ./ n_samples, inner=10), 10, 10);
 
 # Entropy of the ground-truth
 # H_truth = -sum(P_truth .* log.(P_truth));
 
-# For weight regularizatoin
+# For weight regularization
 sqnorm(x) = sum(abs2, x);
 
-batch_size = 32
-code_length = 32
+# To use mutual information with parallelkmeans ClusteringResult
+counts(k1::ParallelKMeans.KmeansResult, y::GroundTruthResult) = counts() 
+
+batch_size = 128
+code_length = 16
 #num_batches = ceil(size(all_img_x)[end] / batch_size) |> Int
 
 # Initialize a CNN for classification
@@ -88,24 +87,24 @@ batch_losses = zeros(10000, num_epochs);
 for epoch ∈ 1:num_epochs
     # Use all model layers but exclude the last relu and the final dense layer
     features = model[1:11](all_img_gpu);
-    features_c = features |> cpu;
 
     # Optional: Implement PCA with whitening on the data.
     # http://ufldl.stanford.edu/tutorial/unsupervised/PCAWhitening/
     avg = mean(features, dims=1);
     σ = features * features' / size(features)[end];
     F = svd(σ);
-    #x̃ = F.U[:, 1:16]' *  features;
     #FS = F.S |> cpu; # Move to cpu so that we can call diagm
     white_mat = Diagonal(1f0 ./ (sqrt.(F.S) .+ eps(eltype(F.S)))) |> gpu;
-    features_white = white_mat * F.U' * features |> cpu;
+    features_white = white_mat * F.U' * features 
+    features_white = features_white ./ sum(abs2, features_white, dims=1) |> cpu;
 
     # Optional: Use raw features, without whitening
     #cluster_code = kmeans(features_c, 10, maxiter=500);
     # Better: Use whitened features to achieve better kmeans performance
-    cluster_code = kmeans(features_white, 10, maxiter=100);
-    class_counts= [(i, count(==(i), cluster_code.assignments)) for i ∈ 1:10]
-    NMI_list[epoch] = mutualinfo(cluster_code, truth)
+    cluster_code = kmeans(features_white, 10); #, maxiter=500; display=:iter);
+    class_counts = [(i, count(==(i), cluster_code.assignments)) for i ∈ 1:10]
+    cluster_found = GroundTruthResult(cluster_code.assignments)
+    NMI_list[epoch] = mutualinfo(cluster_found, truth)
     @show epoch, NMI_list[epoch], class_counts
 
     # Over-sample the images so that each cluster has an identical amount of
@@ -149,26 +148,38 @@ for epoch ∈ 1:num_epochs
     f, a, l = lines(batch_losses[plot_idx, epoch]; axis=(; xlabel="batch", ylabel="loss", title="epoch $(epoch)"))
     save("loss_$(epoch).png", f)
 
-    # ### Now evaluate the normalized mutual information
-    # class_counts_K = [(i, count(==(i), cluster_code.assignments)) for i ∈ 1:10];
-    # # Class probability
-    # P_K = [count(==(i), cluster_code.assignments) for i ∈ 1:10] ./ n_samples;
-    # # Entropy of clustering
-    # H_K = -sum(P_K .* log.(P_K));
-    # # Build the association matrix.
-    # N = counts(truth, cluster_code)
-    # P_ij = N / n_samples .+ 1e-16;
-    # # Cross-entropy of ground truth and K-means
-    # I = sum(P_ij .* log.(P_ij ./ P_i ./ P_j));
-    # Calculate normalized Mutual Information
-    # N. Vinh et al. - Information Theoretic Measures for Clustering Comparison (2009)
-    # The VI is lower bounded by 0 (when the two clusterings are identical) and always upper bounded by
-    # log(N ), though tighter bounds are achievable depending on the number of clusters.
-    # @show NMI = I / sqrt(H_truth * H_K);
-    # NMI_list[epoch] = NMI;
+
 end
 
 f, a, l = lines(NMI_list; axis=(; xlabel="epoch", ylabel="NMI"))
 save("nmi.png", f)
+
+# Move old code below:
+# Count cluster labels assignments
+# class_counts_truth = [(i, count(==(i), truth.assignments)) for i ∈ 1:10]
+# P_truth = [count(==(i), truth.assignments) for i ∈ 1:10] ./ n_samples
+
+# Probability that assignment of ground-truth is in class 1:10. Varies along rows. Fixed along columns
+# P_i = reshape(repeat([sum(truth.assignments .== i) for i ∈ 1:10] ./ n_samples, outer=10), 10, 10);
+# # # Probability that assignment of K-means is in class 1:10. Varies along column. Fixed along rows
+# P_j = reshape(repeat([sum(truth.assignments .== i) for i ∈ 1:10] ./ n_samples, inner=10), 10, 10);
+
+# ### Now evaluate the normalized mutual information
+# class_counts_K = [(i, count(==(i), cluster_code.assignments)) for i ∈ 1:10];
+# # Class probability
+# P_K = [count(==(i), cluster_code.assignments) for i ∈ 1:10] ./ n_samples;
+# # Entropy of clustering
+# H_K = -sum(P_K .* log.(P_K));
+# # Build the association matrix.
+# N = counts(truth, cluster_code)
+# P_ij = N / n_samples .+ 1e-16;
+# # Cross-entropy of ground truth and K-means
+# I = sum(P_ij .* log.(P_ij ./ P_i ./ P_j));
+# Calculate normalized Mutual Information
+# N. Vinh et al. - Information Theoretic Measures for Clustering Comparison (2009)
+# The VI is lower bounded by 0 (when the two clusterings are identical) and always upper bounded by
+# log(N ), though tighter bounds are achievable depending on the number of clusters.
+# @show NMI = I / sqrt(H_truth * H_K);
+# NMI_list[epoch] = NMI;
 
 

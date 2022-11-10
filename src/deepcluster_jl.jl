@@ -1,5 +1,5 @@
 module deepcluster_jl
 
-greet() = print("Hello World!")
-
+include("main.jl")
+include("utils.jl")
 end # module deepcluster_jl

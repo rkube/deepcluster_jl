@@ -2,7 +2,7 @@
 
 julia_version = "1.8.2"
 manifest_format = "2.0"
-project_hash = "e2135e453bb153ee1d137d5fba4546576c9ff1cb"
+project_hash = "4f63b0ce690a2e1d23266e746aa5fc9e848ebc6d"
 
 [[deps.AbstractFFTs]]
 deps = ["ChainRulesCore", "LinearAlgebra"]
@@ -993,6 +993,12 @@ git-tree-sha1 = "0def460f055098092043c9533e245ef77b6a8cc8"
 uuid = "eb30cadb-4394-5ae3-aed4-317e484a6458"
 version = "0.7.5"
 
+[[deps.MLJModelInterface]]
+deps = ["Random", "ScientificTypesBase", "StatisticalTraits"]
+git-tree-sha1 = "4040c0da2bd05130687cc258c1318acd32bace90"
+uuid = "e80e1ace-859a-464e-9ed9-23947d8ae3ea"
+version = "1.7.1"
+
 [[deps.MLLabelUtils]]
 deps = ["LearnBase", "MappedArrays", "StatsBase"]
 git-tree-sha1 = "fd75d4b0c4016e047bbb6263eecf7ae3891af522"
@@ -1262,6 +1268,12 @@ git-tree-sha1 = "84a314e3926ba9ec66ac097e3635e270986b0f10"
 uuid = "36c8627f-9965-5494-a995-c6b170f724f3"
 version = "1.50.9+0"
 
+[[deps.ParallelKMeans]]
+deps = ["Distances", "MLJModelInterface", "Random", "StatsBase", "UnsafeArrays"]
+git-tree-sha1 = "92f66e0c0970531ec0eac41ef47b538d94aa4e26"
+uuid = "42b8e9d4-006b-409a-8472-7f34b3fb58af"
+version = "1.0.1"
+
 [[deps.Parsers]]
 deps = ["Dates"]
 git-tree-sha1 = "6c01a9b494f6d2a9fc180a08b182fcb06f0958a0"
@@ -1482,6 +1494,11 @@ git-tree-sha1 = "2436b15f376005e8790e318329560dcc67188e84"
 uuid = "7b38b023-a4d7-4c5e-8d43-3f3097f304eb"
 version = "0.3.3"
 
+[[deps.ScientificTypesBase]]
+git-tree-sha1 = "a8e18eb383b5ecf1b5e6fc237eb39255044fd92b"
+uuid = "30f210dd-8aff-4c5f-94ba-8e64358c1161"
+version = "3.0.0"
+
 [[deps.Scratch]]
 deps = ["Dates"]
 git-tree-sha1 = "f94f779c94e58bf9ea243e77a37e16d9de9126bd"
@@ -1587,6 +1604,12 @@ version = "1.5.9"
 git-tree-sha1 = "6b7ba252635a5eff6a0b0664a41ee140a1c9e72a"
 uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
 version = "1.4.0"
+
+[[deps.StatisticalTraits]]
+deps = ["ScientificTypesBase"]
+git-tree-sha1 = "30b9236691858e13f167ce829490a68e1a597782"
+uuid = "64bff920-2084-43da-a3e6-9bb72801c0c9"
+version = "3.2.0"
 
 [[deps.Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
@@ -1721,6 +1744,11 @@ deps = ["REPL"]
 git-tree-sha1 = "53915e50200959667e78a92a418594b428dffddf"
 uuid = "1cfade01-22cf-5700-b092-accc4b62d6e1"
 version = "0.4.1"
+
+[[deps.UnsafeArrays]]
+git-tree-sha1 = "3350f94f6caa02f324a23645bf524fc9334c7488"
+uuid = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"
+version = "1.0.4"
 
 [[deps.Unzip]]
 git-tree-sha1 = "ca0969166a028236229f63514992fc073799bb78"
