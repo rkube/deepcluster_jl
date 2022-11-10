@@ -1,3 +1,5 @@
+using Statistics
+using LinearAlgebra
 using Clustering
 using Flux
 using Flux.Data: DataLoader
@@ -39,9 +41,9 @@ truth = GroundTruthResult(all_y .+ 1);
 # For weight regularizatoin
 sqnorm(x) = sum(abs2, x);
 
-batch_size = 64
+batch_size = 32
 code_length = 32
-num_batches = ceil(size(all_img_x)[end] / batch_size) |> Int
+#num_batches = ceil(size(all_img_x)[end] / batch_size) |> Int
 
 # Initialize a CNN for classification
 model = Chain(
@@ -49,27 +51,26 @@ model = Chain(
     Conv((3, 3), 1 => 16, relu),
     # 2nd convolution: 26x26 => 22 x 22
     Conv((5, 5), 16 => 16, relu),
-    # 3rd convolution: 22x22 => 16x16
+    # 3rd convolution: 22x22 => 18 x 18
+    Conv((5, 5), 16 => 16, relu),
+    # 4th Convolution: 18 x 18 => 12x12
     Conv((7, 7), 16 => 16, relu),
-    # maxpool: 16x16 => 8x8
+    # maxpool: 12x12 => 6x6
     x -> maxpool(x, (2, 2)),
-    # Reshape, use : to collate x,y,and Channels
+    # Reshape, use : to collate x,y,and Channels. 6x6x16 = 576
     x -> reshape(x, :, size(x)[4]),
     # Up to here the model corresponds to "features" in Caron's code
     Dropout(0.5),
-    Dense(1024 => 512),
+    Dense(576 => 128),
     #Dropout(0.1), 
     x -> relu(x),
     Dropout(0.5),
-    Dense(512 => code_length),
+    Dense(128 => code_length),
     # Everything up to this line is used for clustering.
     # This corresponds to the "classifier" in Caron's code
     x -> relu(x), 
     Dense(code_length, 10)
 ) |> gpu;
-
-# Store CNN code for entire dataset
-#features = zeros(code_length, size(all_img_x)[end])
 
 #opt = Flux.Optimise.Optimiser(WeightDecay(1f-4), Momentum(0.001), ExpDecay(1f0));
 lr = 1e-3
@@ -79,22 +80,33 @@ opt = Momentum(lr)
 params = Flux.params(model);
 
 # Cluster the code
-num_epochs = 20
+num_epochs = 10
 NMI_list = zeros(num_epochs);
 # We are oversampling and don't know the number of batchs a-priori. Take a large number and cross thumbs.
 batch_losses = zeros(10000, num_epochs);
 
 for epoch ∈ 1:num_epochs
     # Use all model layers but exclude the last relu and the final dense layer
-    features = model[1:10](all_img_gpu);
+    features = model[1:11](all_img_gpu);
     features_c = features |> cpu;
-    cluster_code = kmeans(features_c, 10, maxiter=500);
+
+    # Optional: Implement PCA with whitening on the data.
+    # http://ufldl.stanford.edu/tutorial/unsupervised/PCAWhitening/
+    avg = mean(features, dims=1);
+    σ = features * features' / size(features)[end];
+    F = svd(σ);
+    #x̃ = F.U[:, 1:16]' *  features;
+    #FS = F.S |> cpu; # Move to cpu so that we can call diagm
+    white_mat = Diagonal(1f0 ./ (sqrt.(F.S) .+ eps(eltype(F.S)))) |> gpu;
+    features_white = white_mat * F.U' * features |> cpu;
+
+    # Optional: Use raw features, without whitening
+    #cluster_code = kmeans(features_c, 10, maxiter=500);
+    # Better: Use whitened features to achieve better kmeans performance
+    cluster_code = kmeans(features_white, 10, maxiter=100);
     class_counts= [(i, count(==(i), cluster_code.assignments)) for i ∈ 1:10]
     NMI_list[epoch] = mutualinfo(cluster_code, truth)
     @show epoch, NMI_list[epoch], class_counts
-    # Construct a new dataloader.
-    #labels = Flux.onehotbatch(cluster_code.assignments, 1:10) |> gpu;
-    #labels_gpu = cluster_code.assignments |> gpu;
 
     # Over-sample the images so that each cluster has an identical amount of
     # samples for training
@@ -124,7 +136,7 @@ for epoch ∈ 1:num_epochs
     for (X, Y) in data_loader
         Y_1h = Flux.onehotbatch(Y, 1:10) |> gpu;
         # Store current loss in array. This can't be in gradient call
-        batch_losses[ix, epoch] = Flux.Losses.crossentropy(softmax(model(X)), Y_1h)
+        batch_losses[ix, epoch] = Flux.Losses.crossentropy(softmax(model(X)), Y_1h) + λ * sum(sqnorm, params);
         #@show ix, batch_losses[ix, epoch]
         ix += 1
 
@@ -133,7 +145,7 @@ for epoch ∈ 1:num_epochs
         end
         Flux.Optimise.update!(opt, params, grads)
     end
-    plot_idx = batch_losses[:, epoch] .> 0.0
+    plot_idx = batch_losses[:, epoch] .> 0.0;
     f, a, l = lines(batch_losses[plot_idx, epoch]; axis=(; xlabel="batch", ylabel="loss", title="epoch $(epoch)"))
     save("loss_$(epoch).png", f)
 
@@ -158,3 +170,5 @@ end
 
 f, a, l = lines(NMI_list; axis=(; xlabel="epoch", ylabel="NMI"))
 save("nmi.png", f)
+
+
