@@ -40,8 +40,8 @@ sqnorm(x) = sum(abs2, x);
 # To use mutual information with parallelkmeans ClusteringResult
 counts(k1::ParallelKMeans.KmeansResult, y::GroundTruthResult) = counts() 
 
-batch_size = 128
-code_length = 16
+batch_size = 32
+code_length = 32
 #num_batches = ceil(size(all_img_x)[end] / batch_size) |> Int
 
 # Initialize a CNN for classification
@@ -147,6 +147,9 @@ for epoch ∈ 1:num_epochs
     plot_idx = batch_losses[:, epoch] .> 0.0;
     f, a, l = lines(batch_losses[plot_idx, epoch]; axis=(; xlabel="batch", ylabel="loss", title="epoch $(epoch)"))
     save("loss_$(epoch).png", f)
+
+    f, a, p = plot_mnist_classified(all_img_x, cluster_code.assignments, epoch)
+    save("assignments_$(epoch).png", f)
 
 
 end
