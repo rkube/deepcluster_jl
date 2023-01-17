@@ -1,3 +1,5 @@
+using Random
+using CairoMakie
 
 export plot_mnist_classified
 

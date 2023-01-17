@@ -80,7 +80,7 @@ params = Flux.params(model);
 # Cluster the code
 num_epochs = 20
 NMI_list = zeros(num_epochs);
-# We are oversampling and don't know the number of batchs a-priori. Take a large number and cross thumbs.
+# We are oversampling and don't know the number of batchs a-priori. Take a large number and cross fingers
 batch_losses = zeros(10000, num_epochs);
 
 for epoch ∈ 1:num_epochs
