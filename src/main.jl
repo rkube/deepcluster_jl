@@ -37,10 +37,8 @@ truth = GroundTruthResult(all_y .+ 1);
 # For weight regularization
 sqnorm(x) = sum(abs2, x);
 
-# To use mutual information with parallelkmeans ClusteringResult
-counts(k1::ParallelKMeans.KmeansResult, y::GroundTruthResult) = counts() 
 
-batch_size = 32
+batch_size = 16
 code_length = 32
 #num_batches = ceil(size(all_img_x)[end] / batch_size) |> Int
 
@@ -71,15 +69,16 @@ model = Chain(
     Dense(code_length, 10)
 ) |> gpu;
 
-#opt = Flux.Optimise.Optimiser(WeightDecay(1f-4), Momentum(0.001), ExpDecay(1f0));
+
 lr = 1e-3
 λ = 1f-4
 #opt = Flux.Optimise.Optimiser(Momentum(lr), ExpDecay(1.0));
 opt = Momentum(lr)
+#opt = Flux.Optimise.Optimiser( Momentum(lr), ExpDecay(1f0));
 params = Flux.params(model);
 
 # Cluster the code
-num_epochs = 10
+num_epochs = 20
 NMI_list = zeros(num_epochs);
 # We are oversampling and don't know the number of batchs a-priori. Take a large number and cross thumbs.
 batch_losses = zeros(10000, num_epochs);
@@ -127,7 +126,7 @@ for epoch ∈ 1:num_epochs
     data_loader = DataLoader((img_os_gpu, labels_os); batchsize=batch_size, shuffle=true)
 
     ### We need to re-initialize the weights of the top layer here.
-    model[end].weight[:,:] .= Flux.glorot_uniform(size(model[end].weight)...) |> gpu;
+    model[end].weight[:, :] .= Flux.glorot_uniform(size(model[end].weight)...) |> gpu;
     model[end].bias .= 0f0
 
     # Train the model in the data.
