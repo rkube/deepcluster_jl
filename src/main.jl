@@ -38,7 +38,7 @@ truth = GroundTruthResult(all_y .+ 1);
 sqnorm(x) = sum(abs2, x);
 
 
-batch_size = 16
+batch_size = 32
 code_length = 32
 #num_batches = ceil(size(all_img_x)[end] / batch_size) |> Int
 
@@ -81,7 +81,7 @@ params = Flux.params(model);
 num_epochs = 20
 NMI_list = zeros(num_epochs);
 # We are oversampling and don't know the number of batchs a-priori. Take a large number and cross fingers
-batch_losses = zeros(10000, num_epochs);
+batch_losses = zeros(20000, num_epochs);
 
 for epoch ∈ 1:num_epochs
     # Use all model layers but exclude the last relu and the final dense layer
@@ -149,9 +149,9 @@ for epoch ∈ 1:num_epochs
 
     f, a, p = plot_mnist_classified(all_img_x, cluster_code.assignments, epoch)
     save("assignments_$(epoch).png", f)
-
-
 end
+
+
 
 f, a, l = lines(NMI_list; axis=(; xlabel="epoch", ylabel="NMI"))
 save("nmi.png", f)

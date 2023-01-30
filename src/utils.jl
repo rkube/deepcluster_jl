@@ -1,7 +1,10 @@
 using Random
 using CairoMakie
+using ColorSchemes
+using Hungarian
+using Clustering: counts
 
-export plot_mnist_classified
+export plot_mnist_classified, plot_kstar_ecei_clf
 
 function plot_mnist_classified(images, class_assignments, epoch; num_classes=10)
     # model - vector of images, shape (28x28xnum_samples)
@@ -26,4 +29,33 @@ function plot_mnist_classified(images, class_assignments, epoch; num_classes=10)
         end
     end
     f, a, p = heatmap(img_all_classes, colormap=:grays)
+end
+
+
+"""
+    Plot time series with predicted labels coded by color.
+    Before being used, the predicted labels are re-assigned to a class permutation
+    that is calculated from the true labels using the Hungarian algorithm.
+
+"""
+
+function plot_kstar_ecei_clf(signal, tbase, labels_pred, labels_true; epoch=1)
+    # Set up confusion matrix to find optimal permutations from labels_pred on labels_true
+    cm = counts(labels_pred, labels_true)
+    cm2 = -cm .+ maximum(cm)
+    ix_perm = [findfirst(Hungarian.munkres(cm2)[i, :].==Hungarian.STAR) for i = 1:3]
+
+    # Permute the indices
+    pred_shuffled = [ix_perm[i] for i ∈ labels_pred.assignments]
+    
+    colors_pred = ColorSchemes.Accent_3[pred_shuffled];
+    colors_true = ColorSchemes.Accent_3[labels_true.assignments]
+
+
+    fig = Figure()
+    ax = Axis(fig[1, 1], xlabel="time [s]", title = "Epoch $(epoch)")
+    lines!(ax, tbase[2:end-1], signal[12, 4, 2:end-1], color=colors_pred)
+    lines!(ax, tbase[2:end-1], signal[12, 4, 2:end-1] .+ abs(minimum(signal[12, 4, 2:end-1])), color=colors_true)
+
+    fig
 end
