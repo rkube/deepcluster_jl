@@ -4,7 +4,7 @@ using ColorSchemes
 using Hungarian
 using Clustering: counts
 
-export plot_mnist_classified, plot_kstar_ecei_clf
+export plot_mnist_classified, plot_kstar_ecei_clf, plot_kstar_ecei_wrapped
 
 function plot_mnist_classified(images, class_assignments, epoch; num_classes=10)
     # model - vector of images, shape (28x28xnum_samples)
@@ -56,6 +56,33 @@ function plot_kstar_ecei_clf(signal, tbase, labels_pred, labels_true; epoch=1)
     ax = Axis(fig[1, 1], xlabel="time [s]", title = "Epoch $(epoch)")
     lines!(ax, tbase[2:end-1], signal[12, 4, 2:end-1], color=colors_pred)
     lines!(ax, tbase[2:end-1], signal[12, 4, 2:end-1] .+ abs(minimum(signal[12, 4, 2:end-1])), color=colors_true)
+
+    fig
+end
+
+"""
+    Plot time series with predicted labels, coded by color.
+    Use for models that wrap multiple frames into a feature
+"""
+function plot_kstar_ecei_wrapped(signal, labels_pred, labels_true, wrap_frames; epoch=1)
+    # Set up confusion matrix to find optimal permutations from labels_pred on labels_true
+    cm = counts(labels_pred, labels_true)
+    cm2 = -cm .+ maximum(cm)
+    ix_perm = [findfirst(Hungarian.munkres(cm2)[i, :].==Hungarian.STAR) for i = 1:2]
+
+    # Permute the indices
+    pred_shuffled = [ix_perm[i] for i ∈ labels_pred.assignments]
+    # Unfold frame wrapping
+
+    colors_pred = repeat(ColorSchemes.Accent_3[pred_shuffled], inner=wrap_frames)
+    colors_true = repeat(ColorSchemes.Accent_3[labels_true.assignments], inner=wrap_frames)
+
+    num_plot = length(colors_pred)
+
+    fig = Figure()
+    ax = Axis(fig[1, 1], xlabel="sample index", title = "Epoch $(epoch)")
+    lines!(ax, 1:num_plot, signal[12, 4, 1:num_plot], color=colors_pred)
+    lines!(ax, 1:num_plot, signal[12, 4, 1:num_plot] .+ abs(minimum(signal[12, 4, :])), color=colors_true)
 
     fig
 end

@@ -1,12 +1,13 @@
-using Statistics
-using LinearAlgebra
+using CairoMakie
+using Clustering: mutualinfo, ClusteringResult
+using CUDA
 using Flux
 using Flux.Data: DataLoader
+using LinearAlgebra
 using MLUtils
-using Clustering: mutualinfo, ClusteringResult
 using ParallelKMeans
-using CairoMakie
-using CUDA
+using Statistics
+
 
 using deepcluster_jl
 
