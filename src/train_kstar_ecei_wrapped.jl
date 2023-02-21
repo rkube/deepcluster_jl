@@ -23,7 +23,6 @@ Train Deep Clustering on single KSTAR ECEI shot
 Shot should have ELM filaments and ELM crash visible. So there are two classes.
 """
 
-
 struct GroundTruthResult <: ClusteringResult
     assignments::Vector{Int}   # assignments (n)
 end
@@ -31,72 +30,77 @@ end
 # For weight regularization
 sqnorm(x) = sum(abs2, x);
 
-shotnr = 26512
+shotnr = 26327
 wrap_frames = 8
 
-num_classes = 2
+num_classes = 3
 num_epochs = 20
 batch_size = 32
+clf_size = 1024
 code_length = 64
 
-lr = 1e-3
+lr = 1e-4
 λ = 1f-4
 
 
-trf = GaussianBlur(3)
+trf = GaussianBlur(1)
 my_ds = kstar_ecei_3d(shotnr, wrap_frames, trf)
 
 # Loads training data
 loader = DataLoader(my_ds, batchsize=batch_size, shuffle=true, partial=false)
-# Load all data, calculate histogram and move to gpu.
+# Load all data, calculate histogram
 loader_all = DataLoader(my_ds, batchsize=size(my_ds.features, 4), shuffle=false, partial=false)
 # Move vector of all data to gpu. Prediction of this are evaluated during training
 (x_all, labels_true) = first(loader_all)
+x_all = Flux.unsqueeze(x_all, 4) |> gpu;
+x_all_flat = reshape(x_all, 24, 8, size(x_all, 3) * size(x_all, 5)) |> cpu;
 # fix for num_classes = 2: ELMcrash is the same as filament
-labels_true[labels_true .== 2] .= 1;
+#labels_true[labels_true .== 2] .= 1;
 
 
-assignments_true = GroundTruthResult(labels_true .+ 1)
-f, a, h = hist(x_all[:], bins=-2.5:0.01:2.5);
-save("plots/hist_x_all.png", f)
+# assignments_true = GroundTruthResult(labels_true .+ 1)
+# f, a, h = hist(x_all[:], bins=-2.5:0.01:2.5);
+# save("plots/hist_x_all.png", f)
 
 
-x_all = Flux.unsqueeze(x_all, 4);
 # Used in plotting later
 x_all_flat = reshape(x_all, 24, 8, size(x_all, 3) * size(x_all, 5))  |> cpu;
 
-model = Chain(Conv((5, 3, 3), 1 => 16),   # 
+model = Chain(Conv((5, 3, 3), 1 => 16, init=Flux.glorot_normal()),   # 
               BatchNorm(16, relu),
-              Conv((7, 3, 3), 16 => 64),  # 
-              BatchNorm(64, relu),
-              # Put in some skip connections
-              SkipConnection(Chain(Conv((3, 3, 3), 64 => 64, pad=(1,1,1)),
-                                   BatchNorm(64, relu),
-                                   Conv((3, 3, 3), 64 => 64, pad=(1,1,1)),
-                                   BatchNorm(64, relu)),
-                             +),
-              # reduce size from (14, 4, 4) to (8, 2,2)
-              Conv((7, 3, 3), 64 => 64),
-              SkipConnection(Chain(Conv((3, 3, 3), 64 => 64, pad=(1,1,1)),
-                                   BatchNorm(64, relu),
-                                   Conv((3, 3, 3), 64 => 64, pad=(1,1,1)),
-                                   BatchNorm(64, relu)),
-                             +),
+              Conv((7, 3, 3), 16 => 16, init=Flux.glorot_normal()),  # 
+              BatchNorm(16, relu),
+              # Don't use skip connnections
+              Conv((3, 3, 3), 16 => 32, pad=1, init=Flux.glorot_normal()),
+              BatchNorm(32, relu),
+              Conv((3, 3, 3), 32 => 32, pad=1, init=Flux.glorot_normal()),
+              BatchNorm(32, relu),
+              Conv((3, 3, 3), 32 => 32, pad=1, init=Flux.glorot_normal()),
+              BatchNorm(32, relu),
+              Conv((5, 3, 3), 32=>32, init=Flux.glorot_normal()),
+              BatchNorm(32, relu),
 
-              BatchNorm(64, relu),
-              Conv((5, 1, 1), 64 => 64),
+              Conv((7, 1, 1), 32 => 16, relu, init=Flux.glorot_normal()),
               x -> Flux.flatten(x),
-              Dense(4 * 2 * 2 * 64, code_length),
+              Dense(4 * 2 * 2 * 16, clf_size, relu, init=Flux.glorot_normal()),
+              Dropout(0.5),
+              Dense(clf_size, code_length, init=Flux.glorot_normal()),
               x -> relu(x),  # Keep ReLU separate. The classifier for K-Means is called without ReLU...
                              # So the ReLU call has to be separable by slicing operation 
               Dense(code_length, num_classes)
 ) |> gpu;
 
+# Test if model has correct dimensions
+(X, Y) = first(loader);
+X = Flux.unsqueeze(X, 4) |> gpu;
+size(model(X))
+
 
 
 ix_model_backbone = 11; #model[1:11] calls just the backbone of the model
+ix_model_clf = 17;
 #opt = Flux.Optimise.Optimiser(Momentum(lr), ExpDecay(1.0, 0.1, 5, 1e-4));
-opt = ADAM(lr);
+opt = Momentum(lr);
 
 # Cluster the code
 NMI_list = zeros(num_epochs);
@@ -105,23 +109,31 @@ batch_losses = zeros(20000, num_epochs);
 
 for epoch ∈ 1:num_epochs
     # Use all model layers but exclude the last relu and the final dense layer
-    features = model[1:ix_model_backbone](x_all) |> cpu;
-    # Use whitened features to improve kmeans performance
+    # data goes through feature extractor and classifier. But not the top_layer:
+    # See https://github.com/facebookresearch/deepcluster/blob/2d1927e8e3dd272329e879e510fbbdf1b1d02d17/main.py#L145
+    # and: https://github.com/facebookresearch/deepcluster/blob/2d1927e8e3dd272329e879e510fbbdf1b1d02d17/models/vgg16.py#L47
+    features = model[1:ix_model_clf](x_all) |> cpu;
+    # Use whitened features to improve kmeans performance.
+    # Use correct matrix notation: I-th column features[:, i] is a single sample.
+    # See https://juliastats.org/MultivariateStats.jl/dev/
     trf_w = fit(Whitening, features);
     features_white = transform(trf_w, features);
 
     cluster_code = kmeans(features_white, num_classes); #, maxiter=500; display=:iter);
-    class_counts = [(i, count(==(i), cluster_code.assignments)) for i ∈ 1:num_classes]
-    assignments_pred = GroundTruthResult(cluster_code.assignments)
-
     # Use completely random labels in the first epoch
-    epoch == 1 ? assignments_pred = GroundTruthResult(rand(1:num_classes, length(assignments_pred))) : nothing
-    
+    assignments_pred = if epoch == 1
+        GroundTruthResult(rand(1:3, size(features)[2]))
+    else
+        GroundTruthResult(cluster_code.assignments)
+    end
+
+    class_counts = [(i, count(==(i), assignments_pred.assignments)) for i ∈ 1:num_classes]
+   
     NMI_list[epoch] = mutualinfo(assignments_pred, assignments_true)
     @show epoch, NMI_list[epoch], class_counts
 
     # Plot current clustering result.
-    fig = plot_kstar_ecei_wrapped(x_all_flat, assignments_pred, assignments_true, wrap_frames; epoch=epoch)
+    fig = plot_kstar_ecei_wrapped2(x_all_flat, assignments_pred, assignments_true, wrap_frames; epoch=epoch)
     save("plots/kstar_assignments_$(epoch).png", fig)
 
     # Over-sample the images so that each cluster has an identical amount of samples for training
@@ -131,7 +143,7 @@ for epoch ∈ 1:num_epochs
     data_loader = DataLoader((data_os_gpu, labels_os); batchsize=batch_size, shuffle=true)
 
     ### We need to re-initialize the weights of the top layer here.
-    model[end].weight[:, :] .= Flux.glorot_uniform(size(model[end].weight)...) |> gpu;
+    model[end].weight[:, :] .= Flux.glorot_normal(size(model[end].weight)...) |> gpu;
     model[end].bias .= 0f0
     params = Flux.params(model);
 
